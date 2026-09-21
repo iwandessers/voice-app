@@ -34,8 +34,50 @@ STATUS_RUNNING = "running"
 STATUS_STOPPED = "stopped"
 STATUS_NOT_CREATED = "not_created"
 
+VOICES_FETCH_TIMEOUT_SECONDS = 3
+
 app = FastAPI(title="Voice App Control Panel")
 docker_client = docker.from_env()
+_voices_cache: dict[str, list[str]] = {}
+
+
+def fetch_live_voices(service: str, cfg: dict) -> list[str] | None:
+    """Fetch the current voice list from a running service, with caching."""
+    if service in _voices_cache:
+        return _voices_cache[service]
+    url = f"http://{cfg['host']}:{cfg['port']}{cfg['voices_path']}"
+    try:
+        resp = httpx.get(url, timeout=VOICES_FETCH_TIMEOUT_SECONDS)
+        resp.raise_for_status()
+        data = resp.json()
+        voices = data.get("voices") if isinstance(data, dict) else data
+        if isinstance(voices, list):
+            names = [
+                v if isinstance(v, str) else v.get("id") or v.get("name")
+                for v in voices
+            ]
+            names = [n for n in names if isinstance(n, str)]
+            if names:
+                _voices_cache[service] = sorted(names)
+                return _voices_cache[service]
+    except Exception:
+        pass
+    return None
+
+
+def resolve_fields(service: str, cfg: dict, status: str) -> list[dict]:
+    """Return field definitions, swapping in live voice options when available."""
+    if "voices_path" not in cfg or status != STATUS_RUNNING:
+        return cfg["fields"]
+    voices = fetch_live_voices(service, cfg)
+    if not voices:
+        return cfg["fields"]
+    fields = []
+    for field in cfg["fields"]:
+        if field["name"] == "voice":
+            field = {**field, "options": voices}
+        fields.append(field)
+    return fields
 
 
 def find_container(service: str):
@@ -61,7 +103,7 @@ def list_models():
             "label": cfg["label"],
             "description": cfg["description"],
             "status": status,
-            "fields": cfg["fields"],
+            "fields": resolve_fields(name, cfg, status),
         })
     return result
 

@@ -76,6 +76,27 @@ function nameToLabelPattern(name) {
   return labels[name];
 }
 
+test('voice dropdowns are populated', async ({ page }) => {
+  await page.goto(BASE_URL);
+  const kitten = page.locator('#cards > div').filter({
+    has: page.locator('h2', { hasText: /^Kitten TTS$/ }),
+  });
+  await expect(kitten.locator('select[name="voice"] option')).toHaveCount(8);
+
+  const kokoro = page.locator('#cards > div').filter({
+    has: page.locator('h2', { hasText: /^Kokoro$/ }),
+  });
+  // Running Kokoro exposes its full live voice list (dozens of voices).
+  const kokoroOptions = await kokoro.locator('select[name="voice"] option').count();
+  expect(kokoroOptions).toBeGreaterThan(10);
+  await expect(kokoro.locator('select[name="voice"]')).toHaveValue('af_bella');
+
+  const melo = page.locator('#cards > div').filter({
+    has: page.locator('h2', { hasText: /^MeloTTS$/ }),
+  });
+  await expect(melo.locator('select[name="speaker_id"] option')).toHaveCount(10);
+});
+
 test('kokoro generates audio through the form', async ({ page, request }) => {
   const status = await getStatus(request, 'kokoro');
   expect(status).toBe('running');

@@ -37,7 +37,12 @@ MODELS = {
         "path": "/tts",
         "fields": [
             {"name": "text", "type": FIELD_TEXTAREA, "label": "Text", "required": True},
-            {"name": "voice", "type": FIELD_TEXT, "label": "Voice", "default": "default"},
+            {"name": "voice", "type": FIELD_SELECT, "label": "Voice",
+             "options": [
+                 "expr-voice-2-f", "expr-voice-2-m", "expr-voice-3-f", "expr-voice-3-m",
+                 "expr-voice-4-f", "expr-voice-4-m", "expr-voice-5-f", "expr-voice-5-m",
+             ],
+             "default": "expr-voice-2-f"},
         ],
     },
     "kokoro": {
@@ -48,9 +53,18 @@ MODELS = {
         "port": 8880,
         "path": "/v1/audio/speech",
         "static_body": {"model": "kokoro", "response_format": "wav"},
+        # Voice list is fetched live from the service when it is running;
+        # these options are the fallback when it is not.
+        "voices_path": "/v1/audio/voices",
         "fields": [
             {"name": "input", "type": FIELD_TEXTAREA, "label": "Text", "required": True},
-            {"name": "voice", "type": FIELD_TEXT, "label": "Voice", "default": "af_bella"},
+            {"name": "voice", "type": FIELD_SELECT, "label": "Voice",
+             "options": [
+                 "af_bella", "af_heart", "af_nicole", "af_sarah", "af_sky",
+                 "am_adam", "am_michael",
+                 "bf_emma", "bf_isabella", "bm_george", "bm_lewis",
+             ],
+             "default": "af_bella"},
         ],
     },
     "melotts": {
@@ -64,7 +78,12 @@ MODELS = {
             {"name": "text", "type": FIELD_TEXTAREA, "label": "Text", "required": True},
             {"name": "language", "type": FIELD_SELECT, "label": "Language",
              "options": ["EN", "FR", "ES", "ZH", "JP", "KR"], "default": "EN"},
-            {"name": "speaker_id", "type": FIELD_TEXT, "label": "Speaker", "default": "EN-Default"},
+            {"name": "speaker_id", "type": FIELD_SELECT, "label": "Speaker",
+             "options": [
+                 "EN-Default", "EN-US", "EN-BR", "EN_INDIA", "EN-AU",
+                 "FR", "ES", "ZH", "JP", "KR",
+             ],
+             "default": "EN-Default"},
             {"name": "speed", "type": FIELD_NUMBER, "label": "Speed", "default": 1.0},
         ],
     },
