@@ -97,8 +97,14 @@ npx playwright test
 ## MCP server
 
 [`mcp-server/`](mcp-server/) exposes the stack to MCP clients (Claude Code,
-Claude Desktop, ...) over stdio. It wraps the control panel API, so the panel
-must be running (`docker compose up -d control-panel`).
+Claude Desktop, ...). It wraps the control panel API, so the panel must be
+running (`docker compose up -d control-panel`). Two ways to connect:
+
+- **HTTP (zero install)** — the `mcp` compose service runs it as a streamable
+  HTTP endpoint; register the URL and you're done. No local code, but no
+  local audio playback, and generated files stay on the server.
+- **stdio (local install)** — run it on your own computer; enables
+  `play_audio` through your speakers and local voice-cloning prompt files.
 
 Tools:
 
@@ -122,6 +128,20 @@ server has no audio output — to hear audio, install the MCP server on your own
 computer and point it at the panel with `PANEL_URL`. Everything else works the
 same remotely: the server only speaks HTTP to the panel, and voice-cloning
 prompt files are read from the machine the MCP server runs on.
+
+### Connect over HTTP (no install)
+
+The `mcp` service (`docker compose up -d mcp`) serves streamable HTTP on port
+8600 (`/mcp`), proxied publicly at `/voice-mcp`:
+
+```bash
+claude mcp add --transport http voice-app http://<server-ip>:8091/voice-mcp
+```
+
+Voice cloning in this mode: pass `audio_prompt_url` (an HTTP URL to the voice
+sample) instead of `audio_prompt_path`, since the server cannot read files on
+your machine. Generated audio is written inside the container to the
+`mcp-outputs` volume (`/outputs`).
 
 ### Install on the server (same host as the panel)
 

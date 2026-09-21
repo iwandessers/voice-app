@@ -8,6 +8,16 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
 
+  mcp:
+    build: ./mcp-server
+    ports:
+      - "8600:8600"
+    environment:
+      - PANEL_URL=http://control-panel:8080
+    volumes:
+      - mcp-outputs:/outputs
+    restart: unless-stopped
+
   piper:
     image: rhasspy/wyoming-piper:latest
     ports:
@@ -83,3 +93,4 @@ volumes:
   piper-voices:
   hf-cache:
   ace-step-cache:
+  mcp-outputs:

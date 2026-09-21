@@ -1,21 +1,40 @@
-"""Smoke test: talk to the MCP server over stdio like a real client."""
+"""Smoke test: talk to the MCP server like a real client.
+
+Default is stdio (spawns server.py). Set MCP_URL to test a running
+streamable-HTTP server instead, e.g.:
+    MCP_URL=http://localhost:8600/mcp python test_client.py
+"""
 
 import asyncio
+import contextlib
 import json
+import os
 import sys
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from mcp.client.streamable_http import streamable_http_client
 
 TEST_MODEL = "kokoro"
 TEST_TEXT = "Hello from the MCP smoke test."
+MCP_URL = os.environ.get("MCP_URL")
+
+
+@contextlib.asynccontextmanager
+async def connect():
+    if MCP_URL:
+        async with streamable_http_client(MCP_URL) as (read, write):
+            yield read, write
+    else:
+        params = StdioServerParameters(
+            command=sys.executable, args=["server.py"], env=None
+        )
+        async with stdio_client(params) as (read, write):
+            yield read, write
 
 
 async def main() -> None:
-    params = StdioServerParameters(
-        command=sys.executable, args=["server.py"], env=None
-    )
-    async with stdio_client(params) as (read, write):
+    async with connect() as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
 

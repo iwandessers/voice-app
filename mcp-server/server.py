@@ -8,9 +8,15 @@ file path is returned, since MCP responses are text.
 Run (stdio transport):
     python server.py
 
+Run (streamable HTTP transport, for remote MCP clients):
+    MCP_TRANSPORT=streamable-http python server.py
+
 Environment:
-    PANEL_URL   control panel base URL (default http://localhost:8080)
-    OUTPUT_DIR  where generated audio is saved (default ~/voice-app-outputs)
+    PANEL_URL      control panel base URL (default http://localhost:8080)
+    OUTPUT_DIR     where generated audio is saved (default ~/voice-app-outputs)
+    MCP_TRANSPORT  'stdio' (default) or 'streamable-http'
+    MCP_HOST       bind address for HTTP transport (default 127.0.0.1)
+    MCP_PORT       port for HTTP transport (default 8600)
 """
 
 import json
@@ -27,6 +33,12 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 PANEL_URL = os.environ.get("PANEL_URL", "http://localhost:8080").rstrip("/")
 OUTPUT_DIR = Path(os.environ.get("OUTPUT_DIR", str(Path.home() / "voice-app-outputs")))
+
+TRANSPORT_STDIO = "stdio"
+TRANSPORT_HTTP = "streamable-http"
+MCP_TRANSPORT = os.environ.get("MCP_TRANSPORT", TRANSPORT_STDIO)
+MCP_HOST = os.environ.get("MCP_HOST", "127.0.0.1")
+MCP_PORT = int(os.environ.get("MCP_PORT", "8600"))
 
 # CPU inference is slow and heavy models download checkpoints on first use.
 GENERATION_TIMEOUT_SECONDS = 1800
@@ -125,6 +137,7 @@ def generate_audio(
     model: str,
     params: dict,
     audio_prompt_path: str | None = None,
+    audio_prompt_url: str | None = None,
     output_name: str | None = None,
     play: bool = False,
 ) -> str:
@@ -136,9 +149,11 @@ def generate_audio(
     {"prompt": "dog barking", "seconds_total": 5} for stable-audio.
     Check list_models for each model's exact fields, defaults and options.
 
-    'audio_prompt_path' is a local audio file for voice cloning
-    (chatterbox / chatterbox-turbo only). Set 'play' to also play the
-    result through the speakers of the machine running this MCP server.
+    Voice cloning (chatterbox / chatterbox-turbo only): 'audio_prompt_path'
+    is an audio file on the machine running this MCP server;
+    'audio_prompt_url' fetches the sample over HTTP instead — use it when
+    the MCP server runs remotely. Set 'play' to also play the result
+    through the speakers of the machine running this MCP server.
 
     The model must be running (start_model) — a just-started container is
     retried automatically. CPU generation is slow: expect minutes, and a
@@ -151,6 +166,17 @@ def generate_audio(
         if not path.is_file():
             raise ToolError(f"audio prompt not found: {path}")
         files = {"audio_prompt": (path.name, path.read_bytes())}
+    elif audio_prompt_url:
+        try:
+            prompt_resp = httpx.get(
+                audio_prompt_url, timeout=CONTROL_TIMEOUT_SECONDS,
+                follow_redirects=True,
+            )
+            prompt_resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise ToolError(f"could not fetch audio prompt: {exc}")
+        name = Path(httpx.URL(audio_prompt_url).path).name or "prompt.wav"
+        files = {"audio_prompt": (name, prompt_resp.content)}
 
     resp = _panel(
         "POST",
@@ -185,4 +211,14 @@ def play_audio(path: str) -> str:
 
 
 if __name__ == "__main__":
-    mcp.run()
+    if MCP_TRANSPORT == TRANSPORT_HTTP:
+        # Stateless: no per-session state, works behind a reverse proxy
+        # and for any number of clients.
+        mcp.run(
+            transport=TRANSPORT_HTTP,
+            host=MCP_HOST,
+            port=MCP_PORT,
+            stateless_http=True,
+        )
+    else:
+        mcp.run()
