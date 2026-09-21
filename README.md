@@ -118,14 +118,12 @@ location with `PANEL_URL`, default `http://localhost:8080`).
 
 Playback happens on the machine running the MCP server (first of `afplay`,
 `ffplay`, `mpv`, `paplay`, `aplay` found; `SoundPlayer` on Windows). A headless
-server has no audio output — to hear audio, run the MCP server on your own
-machine and point it at the panel:
+server has no audio output — to hear audio, install the MCP server on your own
+computer and point it at the panel with `PANEL_URL`. Everything else works the
+same remotely: the server only speaks HTTP to the panel, and voice-cloning
+prompt files are read from the machine the MCP server runs on.
 
-```bash
-PANEL_URL=http://<server>:8091/voice python server.py
-```
-
-Setup and registration with Claude Code:
+### Install on the server (same host as the panel)
 
 ```bash
 cd mcp-server
@@ -133,7 +131,55 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 claude mcp add voice-app -- "$(pwd)/.venv/bin/python" "$(pwd)/server.py"
 ```
 
-Smoke test (needs the panel and Kokoro running):
+### Install on your own computer (recommended — enables playback)
+
+Requires Python 3.10+ and network access to the panel
+(e.g. `http://<server-ip>:8091/voice`).
+
+macOS / Linux:
+
+```bash
+git clone git@github.com:iwandessers/voice-app.git
+cd voice-app/mcp-server
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+
+# Claude Code
+claude mcp add voice-app --env PANEL_URL=http://<server-ip>:8091/voice \
+  -- "$(pwd)/.venv/bin/python" "$(pwd)/server.py"
+```
+
+Windows (PowerShell):
+
+```powershell
+git clone git@github.com:iwandessers/voice-app.git
+cd voice-app\mcp-server
+py -m venv .venv; .venv\Scripts\pip install -r requirements.txt
+
+claude mcp add voice-app --env PANEL_URL=http://<server-ip>:8091/voice `
+  -- "$PWD\.venv\Scripts\python.exe" "$PWD\server.py"
+```
+
+For Claude Desktop instead, add to `claude_desktop_config.json`
+(macOS: `~/Library/Application Support/Claude/`, Windows: `%APPDATA%\Claude\`):
+
+```json
+{
+  "mcpServers": {
+    "voice-app": {
+      "command": "/absolute/path/to/voice-app/mcp-server/.venv/bin/python",
+      "args": ["/absolute/path/to/voice-app/mcp-server/server.py"],
+      "env": { "PANEL_URL": "http://<server-ip>:8091/voice" }
+    }
+  }
+}
+```
+
+macOS plays out of the box (`afplay`); on Linux install one of the listed
+players if none is present (e.g. `sudo apt install ffmpeg` for `ffplay`).
+
+### Smoke test
+
+Needs the panel and Kokoro running; add `PANEL_URL=...` when remote:
 
 ```bash
 .venv/bin/python test_client.py
