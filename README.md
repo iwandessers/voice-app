@@ -94,6 +94,42 @@ npx playwright test
 
 ---
 
+## MCP server
+
+[`mcp-server/`](mcp-server/) exposes the stack to MCP clients (Claude Code,
+Claude Desktop, ...) over stdio. It wraps the control panel API, so the panel
+must be running (`docker compose up -d control-panel`).
+
+Tools:
+
+| Tool | Purpose |
+|---|---|
+| `list_models` | All models with status and per-model input fields |
+| `start_model` / `stop_model` | Start or stop a model container |
+| `generate_audio` | Generate audio; saves the file and returns its path |
+
+`generate_audio` takes the model name, a `params` object matching the fields
+from `list_models` (e.g. `{"text": "Hi"}`, or `{"tags": "lofi", "duration": 30}`
+for ACE-Step), and optionally `audio_prompt_path` — a local audio file for
+Chatterbox voice cloning. Output lands in `~/voice-app-outputs/` (override with
+`OUTPUT_DIR`; panel location with `PANEL_URL`, default `http://localhost:8080`).
+
+Setup and registration with Claude Code:
+
+```bash
+cd mcp-server
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+claude mcp add voice-app -- "$(pwd)/.venv/bin/python" "$(pwd)/server.py"
+```
+
+Smoke test (needs the panel and Kokoro running):
+
+```bash
+.venv/bin/python test_client.py
+```
+
+---
+
 ## Per-model usage
 
 ### Piper — port 10200 (Wyoming protocol)

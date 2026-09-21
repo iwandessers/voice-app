@@ -3,3 +3,4 @@ tests/test-results/
 tests/playwright-report/
 __pycache__/
 *.pyc
+mcp-server/.venv/
