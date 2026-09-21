@@ -67,7 +67,21 @@ docker compose down -v
 
 ## docker-compose.yml
 
-The full stack is defined in [`docker-compose.yml`](docker-compose.yml) — CPU-only images and settings for all nine models plus the `control-panel` service. Kokoro uses the `kokoro-fastapi-cpu` image; the other model services set `DEVICE=cpu`.
+The full stack is defined in [`docker-compose.yml`](docker-compose.yml) — CPU-only, all nine models plus the `control-panel` service.
+
+- **Piper** and **Kokoro** use official published images (`rhasspy/wyoming-piper`, `ghcr.io/remsky/kokoro-fastapi-cpu`).
+- The remaining models have no official Docker images, so they are built locally from [`model-servers/`](model-servers/): a shared CPU torch base image plus a small FastAPI wrapper per model. Models load lazily on the first generation request, so containers start instantly; the first request triggers the checkpoint download from Hugging Face.
+- **Stable Audio** requires a Hugging Face token (gated repo): `export HF_TOKEN=...` before `docker compose up`, and accept the licence at huggingface.co/stabilityai/stable-audio-open-small.
+- Build the base image once before the first `docker compose build`: `docker build -t voice-app-torch-base:latest model-servers/base/`
+
+## Tests
+
+Playwright E2E suite in [`tests/`](tests/) — verifies the panel renders all model cards, starts and stops every model container through the UI, and runs a real Kokoro generation through the form.
+
+```bash
+cd tests && npm install && npx playwright install chromium-headless-shell
+npx playwright test
+```
 
 ---
 

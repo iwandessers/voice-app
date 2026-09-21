@@ -24,6 +24,8 @@ from models_config import (
 
 COMPOSE_SERVICE_LABEL = "com.docker.compose.service"
 GENERATION_TIMEOUT_SECONDS = 1800  # CPU inference is slow; ACE-Step songs take a while
+CONNECT_RETRY_SECONDS = 30  # a freshly started container needs a moment to listen
+CONNECT_RETRY_INTERVAL_SECONDS = 2
 WYOMING_SAMPLE_RATE = 22050
 WYOMING_SAMPLE_WIDTH = 2
 WYOMING_CHANNELS = 1
@@ -171,24 +173,35 @@ async def generate(service: str, request: Request):
     url = f"http://{cfg['host']}:{cfg['port']}{cfg['path']}"
     timeout = httpx.Timeout(GENERATION_TIMEOUT_SECONDS, connect=10)
     async with httpx.AsyncClient(timeout=timeout) as client:
-        try:
+
+        async def post_upstream():
             if cfg["kind"] == KIND_JSON:
                 body = {**cfg.get("static_body", {}), **values}
-                upstream = await client.post(url, json=body)
-            elif cfg["kind"] == KIND_MULTIPART:
+                return await client.post(url, json=body)
+            if cfg["kind"] == KIND_MULTIPART:
                 files = {}
                 if upload is not None:
                     files[upload_field] = (
                         upload.filename, await upload.read(), upload.content_type
                     )
                 data = {k: str(v) for k, v in values.items()}
-                upstream = await client.post(url, data=data, files=files)
-            else:
-                raise HTTPException(500, f"Unknown request kind: {cfg['kind']}")
-        except httpx.ConnectError:
-            raise HTTPException(
-                502, f"'{cfg['label']}' is not reachable — is the container running?"
-            )
+                return await client.post(url, data=data, files=files)
+            raise HTTPException(500, f"Unknown request kind: {cfg['kind']}")
+
+        # A container that was just started may not be listening yet;
+        # retry connection failures for a bounded window before giving up.
+        deadline = asyncio.get_event_loop().time() + CONNECT_RETRY_SECONDS
+        while True:
+            try:
+                upstream = await post_upstream()
+                break
+            except httpx.ConnectError:
+                if asyncio.get_event_loop().time() >= deadline:
+                    raise HTTPException(
+                        502,
+                        f"'{cfg['label']}' is not reachable — is the container running?",
+                    )
+                await asyncio.sleep(CONNECT_RETRY_INTERVAL_SECONDS)
 
     if upstream.status_code >= 400:
         return JSONResponse(
