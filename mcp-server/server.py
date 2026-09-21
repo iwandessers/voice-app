@@ -14,9 +14,12 @@ Run (streamable HTTP transport, for remote MCP clients):
 Environment:
     PANEL_URL      control panel base URL (default http://localhost:8080)
     OUTPUT_DIR     where generated audio is saved (default ~/voice-app-outputs)
-    MCP_TRANSPORT  'stdio' (default) or 'streamable-http'
-    MCP_HOST       bind address for HTTP transport (default 127.0.0.1)
-    MCP_PORT       port for HTTP transport (default 8600)
+    MCP_TRANSPORT    'stdio' (default) or 'streamable-http'
+    MCP_HOST         bind address for HTTP transport (default 127.0.0.1)
+    MCP_PORT         port for HTTP transport (default 8600)
+    PUBLIC_BASE_URL  external base URL of this server as clients reach it
+                     (e.g. http://1.2.3.4:8091/voice-mcp); used to build
+                     download links for generated audio in HTTP mode
 """
 
 import json
@@ -39,6 +42,8 @@ TRANSPORT_HTTP = "streamable-http"
 MCP_TRANSPORT = os.environ.get("MCP_TRANSPORT", TRANSPORT_STDIO)
 MCP_HOST = os.environ.get("MCP_HOST", "127.0.0.1")
 MCP_PORT = int(os.environ.get("MCP_PORT", "8600"))
+PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
+FILES_ROUTE_PREFIX = "files"
 
 # CPU inference is slow and heavy models download checkpoints on first use.
 GENERATION_TIMEOUT_SECONDS = 1800
@@ -141,7 +146,8 @@ def generate_audio(
     output_name: str | None = None,
     play: bool = False,
 ) -> str:
-    """Generate audio with a model and save it to a file; returns the path.
+    """Generate audio with a model and save it to a file; returns the path
+    (and, when the server is reachable over HTTP, a download_url).
 
     'model' is a name from list_models. 'params' holds that model's fields,
     e.g. {"text": "Hello"} for TTS models,
@@ -197,9 +203,32 @@ def generate_audio(
         "bytes": len(resp.content),
         "media_type": media_type or "audio/wav",
     }
+    if PUBLIC_BASE_URL:
+        result["download_url"] = (
+            f"{PUBLIC_BASE_URL}/{FILES_ROUTE_PREFIX}/{out_path.name}"
+        )
     if play:
         result["played_with"] = _play_file(out_path)
     return json.dumps(result)
+
+
+@mcp.custom_route(f"/{FILES_ROUTE_PREFIX}/{{filename}}", methods=["GET"])
+async def download_file(request):
+    """Serve a generated audio file from OUTPUT_DIR (HTTP transport only)."""
+    from starlette.responses import FileResponse, JSONResponse
+
+    # Path(...).name strips any directory components, preventing traversal
+    # out of OUTPUT_DIR.
+    filename = Path(request.path_params["filename"]).name
+    path = OUTPUT_DIR / filename
+    if not path.is_file():
+        return JSONResponse({"detail": f"no such file: {filename}"}, status_code=404)
+    extension = path.suffix.lower()
+    media_type = next(
+        (mt for mt, ext in MEDIA_TYPE_EXTENSIONS.items() if ext == extension),
+        "application/octet-stream",
+    )
+    return FileResponse(path, media_type=media_type, filename=filename)
 
 
 @mcp.tool()

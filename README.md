@@ -101,8 +101,8 @@ Claude Desktop, ...). It wraps the control panel API, so the panel must be
 running (`docker compose up -d control-panel`). Two ways to connect:
 
 - **HTTP (zero install)** — the `mcp` compose service runs it as a streamable
-  HTTP endpoint; register the URL and you're done. No local code, but no
-  local audio playback, and generated files stay on the server.
+  HTTP endpoint; register the URL and you're done. No local code or audio
+  playback; generated files are returned as download URLs instead.
 - **stdio (local install)** — run it on your own computer; enables
   `play_audio` through your speakers and local voice-cloning prompt files.
 
@@ -140,8 +140,13 @@ claude mcp add --transport http voice-app http://<server-ip>:8091/voice-mcp
 
 Voice cloning in this mode: pass `audio_prompt_url` (an HTTP URL to the voice
 sample) instead of `audio_prompt_path`, since the server cannot read files on
-your machine. Generated audio is written inside the container to the
-`mcp-outputs` volume (`/outputs`).
+your machine.
+
+Generated audio is written to the `mcp-outputs` volume and served back over
+HTTP: `generate_audio` returns a `download_url`
+(`.../voice-mcp/files/<name>.wav`) you can fetch with curl or a browser. The
+link base comes from the `MCP_PUBLIC_URL` compose variable
+(`PUBLIC_BASE_URL` env on the server).
 
 ### Install on the server (same host as the panel)
 
