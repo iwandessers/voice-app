@@ -51,6 +51,15 @@ It talks to Docker via the mounted `/var/run/docker.sock` and proxies inference 
 docker compose up -d --build control-panel
 ```
 
+### External access on this host
+
+The host's external firewall only allows a handful of ports, so the panel is additionally reachable through the `allthingsworn` nginx on port 8091 at **http://\<server-ip\>:8091/voice/**. That setup consists of:
+
+- a `location /voice/` reverse-proxy block in that project's `docker/default.conf` (with `absolute_redirect off` so redirects keep the external port),
+- the nginx container joined to this project's network: `docker network connect voice-app_default nginx-allthingsworn` — note this is a runtime setting and must be re-run if either container is recreated.
+
+The panel frontend uses relative API paths, so it works both at the root (port 8080) and under the `/voice/` prefix.
+
 ### Shut everything down
 
 ```bash
