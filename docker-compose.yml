@@ -1,0 +1,92 @@
+services:
+
+  control-panel:
+    build: ./webapp
+    ports:
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - COMPOSE_PROJECT=voice-app
+    restart: unless-stopped
+
+  piper:
+    image: rhasspy/wyoming-piper:latest
+    ports:
+      - "10200:10200"
+    volumes:
+      - piper-voices:/data
+    command: --voice en_US-lessac-medium
+
+  kitten-tts:
+    image: ghcr.io/kitten-tts/server:latest
+    ports:
+      - "8100:8000"
+    volumes:
+      - kitten-models:/models
+
+  kokoro:
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
+    ports:
+      - "8880:8880"
+
+  melotts:
+    image: ghcr.io/myshell-ai/melotts:latest
+    ports:
+      - "8200:8000"
+    environment:
+      - DEVICE=cpu
+
+  chatterbox:
+    image: ghcr.io/resemble-ai/chatterbox:latest
+    ports:
+      - "8300:8000"
+    volumes:
+      - chatterbox-models:/models
+    environment:
+      - DEVICE=cpu
+
+  chatterbox-turbo:
+    image: ghcr.io/resemble-ai/chatterbox-turbo:latest
+    ports:
+      - "8301:8000"
+    volumes:
+      - chatterbox-models:/models
+    environment:
+      - DEVICE=cpu
+
+  stable-audio-sfx:
+    image: ghcr.io/stability-ai/stable-audio-open-small:latest
+    ports:
+      - "8400:8000"
+    environment:
+      - MODE=sfx
+      - DEVICE=cpu
+    volumes:
+      - stable-audio-models:/models
+
+  stable-audio-music:
+    image: ghcr.io/stability-ai/stable-audio-open-small:latest
+    ports:
+      - "8401:8000"
+    environment:
+      - MODE=music
+      - DEVICE=cpu
+    volumes:
+      - stable-audio-models:/models
+
+  ace-step:
+    image: ghcr.io/ace-step/ace-step:latest
+    ports:
+      - "8500:7860"
+    volumes:
+      - ace-step-models:/models
+    environment:
+      - DEVICE=cpu
+
+volumes:
+  piper-voices:
+  kitten-models:
+  chatterbox-models:
+  stable-audio-models:
+  ace-step-models:

@@ -23,15 +23,32 @@ Local inference stack for speech synthesis, sound effects, music, and full-song 
 ## Prerequisites
 
 - Docker ≥ 24 and Docker Compose v2
-- NVIDIA GPU + drivers ≥ 525 (CPU fallback noted per model)
-- `nvidia-container-toolkit` installed and Docker configured to use it
+- CPU-only setup — no GPU required. All services run on CPU.
+- ~35 GB free RAM to run every model at once (heaviest: ACE-Step and the two Chatterbox variants). Fewer models need less.
+- Expect slow inference on CPU, especially ACE-Step and Stable Audio (minutes, not seconds).
 
 ---
 
 ## Quick start — all models
 
+All models can run at the same time; `up -d` starts every service concurrently.
+
 ```bash
 docker compose up -d
+```
+
+## Control panel
+
+A web UI at **http://localhost:8080** (service `control-panel`, source in `webapp/`) that can:
+
+- Show live status of every model container
+- Start / stop each model individually
+- Send generation requests to any model via a form and play or download the resulting audio
+
+It talks to Docker via the mounted `/var/run/docker.sock` and proxies inference requests to the model containers over the compose network, so no other ports need to be open to the browser.
+
+```bash
+docker compose up -d --build control-panel
 ```
 
 ### Shut everything down
@@ -50,129 +67,7 @@ docker compose down -v
 
 ## docker-compose.yml
 
-```yaml
-services:
-
-  piper:
-    image: rhasspy/wyoming-piper:latest
-    ports:
-      - "10200:10200"
-    volumes:
-      - piper-voices:/data
-    command: --voice en_US-lessac-medium
-
-  kitten-tts:
-    image: ghcr.io/kitten-tts/server:latest
-    ports:
-      - "8100:8000"
-    volumes:
-      - kitten-models:/models
-
-  kokoro:
-    image: ghcr.io/remsky/kokoro-fastapi-gpu:latest   # swap :cpu for CPU-only
-    ports:
-      - "8880:8880"
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-
-  melotts:
-    image: ghcr.io/myshell-ai/melotts:latest
-    ports:
-      - "8200:8000"
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-
-  chatterbox:
-    image: ghcr.io/resemble-ai/chatterbox:latest
-    ports:
-      - "8300:8000"
-    volumes:
-      - chatterbox-models:/models
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-
-  chatterbox-turbo:
-    image: ghcr.io/resemble-ai/chatterbox-turbo:latest
-    ports:
-      - "8301:8000"
-    volumes:
-      - chatterbox-models:/models
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-
-  stable-audio-sfx:
-    image: ghcr.io/stability-ai/stable-audio-open-small:latest
-    ports:
-      - "8400:8000"
-    environment:
-      - MODE=sfx
-    volumes:
-      - stable-audio-models:/models
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-
-  stable-audio-music:
-    image: ghcr.io/stability-ai/stable-audio-open-small:latest
-    ports:
-      - "8401:8000"
-    environment:
-      - MODE=music
-    volumes:
-      - stable-audio-models:/models
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-
-  ace-step:
-    image: ghcr.io/ace-step/ace-step:latest
-    ports:
-      - "8500:7860"
-    volumes:
-      - ace-step-models:/models
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-
-volumes:
-  piper-voices:
-  kitten-models:
-  chatterbox-models:
-  stable-audio-models:
-  ace-step-models:
-```
+The full stack is defined in [`docker-compose.yml`](docker-compose.yml) — CPU-only images and settings for all nine models plus the `control-panel` service. Kokoro uses the `kokoro-fastapi-cpu` image; the other model services set `DEVICE=cpu`.
 
 ---
 
@@ -369,6 +264,7 @@ curl -X POST http://localhost:8500/generate \
 
 | Service | Port | Protocol |
 |---|---|---|
+| Control panel | 8080 | HTTP (web UI) |
 | Piper | 10200 | Wyoming (TCP) |
 | Kitten TTS | 8100 | HTTP REST |
 | Kokoro | 8880 | HTTP REST (OpenAI-compat) |

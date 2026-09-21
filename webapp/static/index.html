@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Voice App Control Panel</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen">
+<div class="max-w-5xl mx-auto px-4 py-8">
+  <header class="mb-8 flex items-center justify-between">
+    <div>
+      <h1 class="text-2xl font-bold">Voice App Control Panel</h1>
+      <p class="text-slate-400 text-sm mt-1">Start, stop and query the local voice AI models</p>
+    </div>
+    <button id="refresh" class="rounded-lg bg-slate-800 hover:bg-slate-700 px-4 py-2 text-sm font-medium">
+      Refresh
+    </button>
+  </header>
+
+  <div id="cards" class="grid gap-4 md:grid-cols-2"></div>
+</div>
+
+<template id="card-template">
+  <div class="rounded-xl border border-slate-800 bg-slate-900 p-5 flex flex-col gap-4">
+    <div class="flex items-start justify-between gap-3">
+      <div>
+        <div class="flex items-center gap-2">
+          <span data-el="dot" class="inline-block w-2.5 h-2.5 rounded-full"></span>
+          <h2 data-el="label" class="text-lg font-semibold"></h2>
+        </div>
+        <p data-el="description" class="text-sm text-slate-400 mt-1"></p>
+      </div>
+      <div class="flex gap-2 shrink-0">
+        <button data-el="start"
+          class="rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed px-3 py-1.5 text-sm font-medium">
+          Start
+        </button>
+        <button data-el="stop"
+          class="rounded-lg bg-rose-600 hover:bg-rose-500 disabled:opacity-40 disabled:cursor-not-allowed px-3 py-1.5 text-sm font-medium">
+          Stop
+        </button>
+      </div>
+    </div>
+
+    <form data-el="form" class="flex flex-col gap-3"></form>
+
+    <div data-el="result" class="hidden flex-col gap-2">
+      <audio data-el="player" controls class="w-full"></audio>
+      <a data-el="download" download
+         class="text-sm text-sky-400 hover:text-sky-300 underline">Download audio</a>
+    </div>
+    <p data-el="message" class="hidden text-sm rounded-lg px-3 py-2"></p>
+  </div>
+</template>
+
+<script>
+const STATUS_STYLES = {
+  running:     { dot: "bg-emerald-400", canStart: false, canStop: true  },
+  stopped:     { dot: "bg-slate-500",   canStart: true,  canStop: false },
+  not_created: { dot: "bg-amber-500",   canStart: false, canStop: false },
+};
+
+const INPUT_CLASSES = "w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 " +
+  "text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-600";
+const LABEL_CLASSES = "block text-xs font-medium text-slate-400 mb-1";
+
+function buildField(field) {
+  const wrap = document.createElement("div");
+  const label = document.createElement("label");
+  label.className = LABEL_CLASSES;
+  label.textContent = field.label + (field.required ? " *" : "");
+  wrap.appendChild(label);
+
+  let input;
+  if (field.type === "textarea") {
+    input = document.createElement("textarea");
+    input.rows = 3;
+  } else if (field.type === "select") {
+    input = document.createElement("select");
+    for (const opt of field.options) {
+      const o = document.createElement("option");
+      o.value = o.textContent = opt;
+      input.appendChild(o);
+    }
+  } else {
+    input = document.createElement("input");
+    input.type = field.type === "number" ? "number" : field.type === "file" ? "file" : "text";
+    if (field.type === "number") input.step = "any";
+    if (field.type === "file") input.accept = "audio/*";
+  }
+  input.name = field.name;
+  input.className = INPUT_CLASSES;
+  if (field.default !== undefined) input.value = field.default;
+  if (field.required) input.required = true;
+  wrap.appendChild(input);
+  return wrap;
+}
+
+function showMessage(el, text, isError) {
+  el.textContent = text;
+  el.className = "text-sm rounded-lg px-3 py-2 " +
+    (isError ? "bg-rose-950 text-rose-300 border border-rose-900"
+             : "bg-slate-800 text-slate-300");
+}
+
+async function loadModels() {
+  const res = await fetch("/api/models");
+  const models = await res.json();
+  const cards = document.getElementById("cards");
+  cards.innerHTML = "";
+  const template = document.getElementById("card-template");
+
+  for (const model of models) {
+    const card = template.content.cloneNode(true);
+    const el = (name) => card.querySelector(`[data-el="${name}"]`);
+
+    el("label").textContent = model.label;
+    el("description").textContent = model.description;
+
+    const style = STATUS_STYLES[model.status];
+    el("dot").classList.add(...style.dot.split(" "));
+    el("start").disabled = !style.canStart;
+    el("stop").disabled = !style.canStop;
+
+    const message = el("message");
+    if (model.status === "not_created") {
+      showMessage(message,
+        `Container not created yet — run: docker compose up -d ${model.name}`, false);
+    }
+
+    el("start").addEventListener("click", () => controlModel(model.name, "start", message));
+    el("stop").addEventListener("click", () => controlModel(model.name, "stop", message));
+
+    const form = el("form");
+    for (const field of model.fields) form.appendChild(buildField(field));
+
+    const submit = document.createElement("button");
+    submit.type = "submit";
+    submit.textContent = "Generate";
+    submit.className = "rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-40 " +
+      "px-4 py-2 text-sm font-semibold self-start";
+    submit.disabled = model.status !== "running";
+    form.appendChild(submit);
+
+    const result = el("result");
+    const player = el("player");
+    const download = el("download");
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      submit.disabled = true;
+      submit.textContent = "Generating… (CPU can be slow)";
+      result.classList.add("hidden");
+      message.classList.add("hidden");
+      try {
+        const res = await fetch(`/api/generate/${model.name}`, {
+          method: "POST",
+          body: new FormData(form),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ detail: res.statusText }));
+          showMessage(message, err.detail, true);
+          return;
+        }
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        player.src = url;
+        download.href = url;
+        download.setAttribute("download", `${model.name}-output.wav`);
+        result.classList.remove("hidden");
+        result.classList.add("flex");
+      } catch (err) {
+        showMessage(message, `Request failed: ${err.message}`, true);
+      } finally {
+        submit.disabled = false;
+        submit.textContent = "Generate";
+      }
+    });
+
+    cards.appendChild(card);
+  }
+}
+
+async function controlModel(name, action, messageEl) {
+  try {
+    const res = await fetch(`/api/models/${name}/${action}`, { method: "POST" });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      showMessage(messageEl, err.detail, true);
+      return;
+    }
+  } catch (err) {
+    showMessage(messageEl, `${action} failed: ${err.message}`, true);
+  }
+  loadModels();
+}
+
+document.getElementById("refresh").addEventListener("click", loadModels);
+loadModels();
+</script>
+</body>
+</html>
