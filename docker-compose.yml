@@ -75,7 +75,11 @@ services:
       - "8500:7860"
     volumes:
       - hf-cache:/root/.cache/huggingface
+      # ACE-Step downloads its 3.5B checkpoint to its own cache dir,
+      # not the huggingface one — persist it across container recreates.
+      - ace-step-cache:/root/.cache/ace-step
 
 volumes:
   piper-voices:
   hf-cache:
+  ace-step-cache:

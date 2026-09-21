@@ -73,7 +73,10 @@ def generate(req: GenerateRequest):
     except Exception as exc:
         raise HTTPException(500, f"Generation failed: {exc}")
 
-    outputs = glob.glob(os.path.join(outdir, "*"))
+    # The pipeline writes an input-params JSON next to the audio; pick audio only.
+    outputs = glob.glob(os.path.join(outdir, "*.wav")) or glob.glob(
+        os.path.join(outdir, "*.mp3")
+    )
     if not outputs:
         raise HTTPException(500, "Pipeline produced no output file")
     with open(outputs[0], "rb") as f:
