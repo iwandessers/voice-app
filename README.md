@@ -131,22 +131,90 @@ prompt files are read from the machine the MCP server runs on.
 
 ### Connect over HTTP (no install)
 
-The `mcp` service (`docker compose up -d mcp`) serves streamable HTTP on port
-8600 (`/mcp`), proxied publicly at `/voice-mcp`:
+Server side — the `mcp` compose service runs the MCP server in streamable-HTTP
+mode on port 8600 (endpoint path `/mcp`):
 
 ```bash
+# On the server. MCP_PUBLIC_URL is the URL clients will use; it becomes the
+# base of the download links generate_audio returns.
+MCP_PUBLIC_URL=http://<server-ip>:8091/voice-mcp docker compose up -d --build mcp
+```
+
+The service sets `MCP_TRANSPORT=streamable-http`, `MCP_HOST=0.0.0.0`,
+`MCP_PORT=8600` and `OUTPUT_DIR=/outputs` (see `mcp-server/Dockerfile`); when
+running `server.py` by hand, set those yourself — the standalone defaults are
+stdio transport and a 127.0.0.1 bind.
+
+Client side — register the URL, done:
+
+```bash
+# Claude Code
 claude mcp add --transport http voice-app http://<server-ip>:8091/voice-mcp
 ```
 
-Voice cloning in this mode: pass `audio_prompt_url` (an HTTP URL to the voice
-sample) instead of `audio_prompt_path`, since the server cannot read files on
-your machine.
+Claude Desktop has no native remote-HTTP entry; bridge it with
+[`mcp-remote`](https://www.npmjs.com/package/mcp-remote) in
+`claude_desktop_config.json`:
 
-Generated audio is written to the `mcp-outputs` volume and served back over
-HTTP: `generate_audio` returns a `download_url`
-(`.../voice-mcp/files/<name>.wav`) you can fetch with curl or a browser. The
-link base comes from the `MCP_PUBLIC_URL` compose variable
-(`PUBLIC_BASE_URL` env on the server).
+```json
+{
+  "mcpServers": {
+    "voice-app": {
+      "command": "npx",
+      "args": ["mcp-remote", "http://<server-ip>:8091/voice-mcp"]
+    }
+  }
+}
+```
+
+On this host the endpoint is proxied at
+**http://\<server-ip\>:8091/voice-mcp** because the external firewall blocks
+port 8600. That takes two extra location blocks in the `allthingsworn` nginx
+(`docker/default.conf`) — same network-connect caveat as the panel proxy above:
+
+```nginx
+# MCP protocol endpoint
+location = /voice-mcp {
+    resolver 127.0.0.11 valid=30s;
+    set $voice_mcp_upstream http://voice-app-mcp-1:8600;
+    rewrite ^.*$ /mcp break;
+    proxy_http_version 1.1;
+    proxy_set_header Host $http_host;
+    proxy_buffering off;
+    proxy_read_timeout 1800;
+    client_max_body_size 64M;
+    proxy_pass $voice_mcp_upstream;
+}
+# Generated-audio downloads (/voice-mcp/files/<name>)
+location /voice-mcp/ {
+    resolver 127.0.0.11 valid=30s;
+    set $voice_mcp_upstream http://voice-app-mcp-1:8600;
+    rewrite ^/voice-mcp/(.*)$ /$1 break;
+    proxy_http_version 1.1;
+    proxy_set_header Host $http_host;
+    proxy_buffering off;
+    proxy_read_timeout 1800;
+    client_max_body_size 64M;
+    proxy_pass $voice_mcp_upstream;
+}
+```
+
+On a host without that firewall constraint, skip nginx and use port 8600
+directly: `claude mcp add --transport http voice-app http://<server-ip>:8600/mcp`
+(and set `MCP_PUBLIC_URL=http://<server-ip>:8600`).
+
+Differences from stdio mode:
+
+- Voice cloning: pass `audio_prompt_url` (an HTTP URL to the voice sample)
+  instead of `audio_prompt_path` — the server cannot read files on your machine.
+- Generated audio is written to the `mcp-outputs` volume and served back over
+  HTTP: `generate_audio` returns a `download_url`
+  (`.../voice-mcp/files/<name>.wav`) you can fetch with curl or a browser.
+- `play_audio` cannot work (no speakers on the server); download instead.
+
+> **Security**: the MCP endpoint and download links are public and
+> unauthenticated — anyone with the URL can control the model containers and
+> fetch generated audio.
 
 ### Install on the server (same host as the panel)
 
@@ -204,10 +272,17 @@ players if none is present (e.g. `sudo apt install ffmpeg` for `ffplay`).
 
 ### Smoke test
 
-Needs the panel and Kokoro running; add `PANEL_URL=...` when remote:
+Needs the panel and Kokoro running. stdio mode (spawns `server.py` itself;
+add `PANEL_URL=...` when the panel is remote):
 
 ```bash
 .venv/bin/python test_client.py
+```
+
+HTTP mode (tests a running HTTP endpoint instead):
+
+```bash
+MCP_URL=http://<server-ip>:8091/voice-mcp .venv/bin/python test_client.py
 ```
 
 ---
