@@ -15,11 +15,15 @@ Environment:
 
 import json
 import os
+import shutil
+import subprocess
+import sys
 import time
 from pathlib import Path
 
 import httpx
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 
 PANEL_URL = os.environ.get("PANEL_URL", "http://localhost:8080").rstrip("/")
 OUTPUT_DIR = Path(os.environ.get("OUTPUT_DIR", str(Path.home() / "voice-app-outputs")))
@@ -37,7 +41,47 @@ MEDIA_TYPE_EXTENSIONS = {
 }
 DEFAULT_EXTENSION = ".wav"
 
+# Ordered candidates: (executable, extra args before the file path).
+# First one found on PATH wins. All exit after playback finishes.
+AUDIO_PLAYERS = [
+    ("afplay", []),                                            # macOS
+    ("ffplay", ["-nodisp", "-autoexit", "-loglevel", "error"]),
+    ("mpv", ["--no-video", "--really-quiet"]),
+    ("paplay", []),                                            # PulseAudio
+    ("aplay", ["-q"]),                                         # ALSA, wav only
+]
+PLAYBACK_TIMEOUT_SECONDS = 1200
+
 mcp = MCPServer("voice-app")
+
+
+def _play_file(path: Path) -> str:
+    """Play an audio file with the first available system player."""
+    if not path.is_file():
+        raise ToolError(f"audio file not found: {path}")
+    if sys.platform == "win32":
+        # SoundPlayer only handles WAV, which is what the models produce.
+        subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             f"(New-Object Media.SoundPlayer '{path}').PlaySync()"],
+            check=True, timeout=PLAYBACK_TIMEOUT_SECONDS,
+        )
+        return "powershell SoundPlayer"
+    for executable, extra_args in AUDIO_PLAYERS:
+        if shutil.which(executable):
+            subprocess.run(
+                [executable, *extra_args, str(path)],
+                check=True, timeout=PLAYBACK_TIMEOUT_SECONDS,
+            )
+            return executable
+    raise ToolError(
+        "No audio player found on this machine (tried: "
+        + ", ".join(name for name, _ in AUDIO_PLAYERS)
+        + "). Note: playback happens where the MCP server runs — on a "
+        "headless server there is nothing to play through. Run the MCP "
+        "server on your local machine with PANEL_URL pointing at the "
+        "panel to hear audio locally."
+    )
 
 
 def _panel(method: str, path: str, **kwargs) -> httpx.Response:
@@ -49,7 +93,7 @@ def _panel(method: str, path: str, **kwargs) -> httpx.Response:
             detail = resp.json().get("detail", detail)
         except Exception:
             pass
-        raise RuntimeError(f"Panel returned {resp.status_code}: {detail}")
+        raise ToolError(f"Panel returned {resp.status_code}: {detail}")
     return resp
 
 
@@ -82,6 +126,7 @@ def generate_audio(
     params: dict,
     audio_prompt_path: str | None = None,
     output_name: str | None = None,
+    play: bool = False,
 ) -> str:
     """Generate audio with a model and save it to a file; returns the path.
 
@@ -92,7 +137,8 @@ def generate_audio(
     Check list_models for each model's exact fields, defaults and options.
 
     'audio_prompt_path' is a local audio file for voice cloning
-    (chatterbox / chatterbox-turbo only).
+    (chatterbox / chatterbox-turbo only). Set 'play' to also play the
+    result through the speakers of the machine running this MCP server.
 
     The model must be running (start_model) — a just-started container is
     retried automatically. CPU generation is slow: expect minutes, and a
@@ -103,7 +149,7 @@ def generate_audio(
     if audio_prompt_path:
         path = Path(audio_prompt_path).expanduser()
         if not path.is_file():
-            raise RuntimeError(f"audio prompt not found: {path}")
+            raise ToolError(f"audio prompt not found: {path}")
         files = {"audio_prompt": (path.name, path.read_bytes())}
 
     resp = _panel(
@@ -120,11 +166,22 @@ def generate_audio(
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     out_path = OUTPUT_DIR / f"{Path(stem).stem}{extension}"
     out_path.write_bytes(resp.content)
-    return json.dumps({
+    result = {
         "path": str(out_path),
         "bytes": len(resp.content),
         "media_type": media_type or "audio/wav",
-    })
+    }
+    if play:
+        result["played_with"] = _play_file(out_path)
+    return json.dumps(result)
+
+
+@mcp.tool()
+def play_audio(path: str) -> str:
+    """Play an audio file through the speakers of the machine running this
+    MCP server. Playback is synchronous; returns when the clip ends."""
+    played_with = _play_file(Path(path).expanduser())
+    return json.dumps({"played": path, "played_with": played_with})
 
 
 if __name__ == "__main__":

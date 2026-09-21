@@ -107,12 +107,23 @@ Tools:
 | `list_models` | All models with status and per-model input fields |
 | `start_model` / `stop_model` | Start or stop a model container |
 | `generate_audio` | Generate audio; saves the file and returns its path |
+| `play_audio` | Play a saved file through the local speakers |
 
 `generate_audio` takes the model name, a `params` object matching the fields
 from `list_models` (e.g. `{"text": "Hi"}`, or `{"tags": "lofi", "duration": 30}`
-for ACE-Step), and optionally `audio_prompt_path` — a local audio file for
-Chatterbox voice cloning. Output lands in `~/voice-app-outputs/` (override with
-`OUTPUT_DIR`; panel location with `PANEL_URL`, default `http://localhost:8080`).
+for ACE-Step), optionally `audio_prompt_path` — a local audio file for
+Chatterbox voice cloning — and `play: true` to play the result immediately.
+Output lands in `~/voice-app-outputs/` (override with `OUTPUT_DIR`; panel
+location with `PANEL_URL`, default `http://localhost:8080`).
+
+Playback happens on the machine running the MCP server (first of `afplay`,
+`ffplay`, `mpv`, `paplay`, `aplay` found; `SoundPlayer` on Windows). A headless
+server has no audio output — to hear audio, run the MCP server on your own
+machine and point it at the panel:
+
+```bash
+PANEL_URL=http://<server>:8091/voice python server.py
+```
 
 Setup and registration with Claude Code:
 

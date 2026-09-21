@@ -23,7 +23,8 @@ async def main() -> None:
             names = sorted(t.name for t in tools.tools)
             print("tools:", names)
             assert names == [
-                "generate_audio", "list_models", "start_model", "stop_model",
+                "generate_audio", "list_models", "play_audio",
+                "start_model", "stop_model",
             ], names
 
             result = await session.call_tool("list_models", {})
@@ -47,6 +48,18 @@ async def main() -> None:
             out = json.loads(result.content[0].text)
             print("generated:", out)
             assert out["bytes"] > 1000, out
+
+            # play_audio: on a machine with speakers this plays the clip;
+            # on a headless host it must fail with a clear explanation.
+            result = await session.call_tool(
+                "play_audio", {"path": out["path"]}
+            )
+            text = result.content[0].text
+            if result.is_error:
+                assert "No audio player found" in text, text
+                print("play_audio: no player on this host (expected on a server)")
+            else:
+                print("play_audio:", text)
 
     print("SMOKE TEST PASSED")
 
