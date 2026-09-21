@@ -12,6 +12,9 @@ import struct
 import docker
 import httpx
 from fastapi import FastAPI, HTTPException, Request, UploadFile
+# Form parsing yields Starlette's UploadFile, which is NOT an instance of
+# FastAPI's UploadFile subclass — isinstance checks must use this one.
+from starlette.datastructures import UploadFile as StarletteUploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
@@ -193,7 +196,7 @@ async def generate(service: str, request: Request):
     upload_field = None
     for field in cfg["fields"]:
         raw = form.get(field["name"])
-        if isinstance(raw, UploadFile):
+        if isinstance(raw, StarletteUploadFile):
             if raw.filename:
                 upload = raw
                 upload_field = field["name"]

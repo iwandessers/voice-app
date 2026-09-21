@@ -33,13 +33,17 @@ def health():
     return {"status": "ok", "loaded": _model is not None}
 
 
+# Sync endpoint on purpose: FastAPI runs it in a worker thread, so the
+# event loop stays responsive while the model downloads or generates.
 @app.post("/synthesize")
-async def synthesize(
+def synthesize(
     text: str = Form(...),
     audio_prompt: UploadFile | None = File(None),
     exaggeration: float = Form(DEFAULT_EXAGGERATION),
     cfg_weight: float = Form(DEFAULT_CFG_WEIGHT),
 ):
+    import os
+
     import torchaudio
 
     model = get_model()
@@ -47,8 +51,9 @@ async def synthesize(
     prompt_tmp = None
     try:
         if audio_prompt is not None and audio_prompt.filename:
-            prompt_tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-            prompt_tmp.write(await audio_prompt.read())
+            suffix = os.path.splitext(audio_prompt.filename)[1] or ".wav"
+            prompt_tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+            prompt_tmp.write(audio_prompt.file.read())
             prompt_tmp.close()
             kwargs["audio_prompt_path"] = prompt_tmp.name
         wav = model.generate(text, **kwargs)
